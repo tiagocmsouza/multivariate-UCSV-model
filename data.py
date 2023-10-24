@@ -15,18 +15,31 @@ bea_client = BureauEconomicAnalysisClient(settings["api_key"])
 
 # Components of request
 
-base = "https://apps.bea.gov/api/data/?UserID={}".format(settings["api_key"])
-dataset = "&DataSetName=NIUnderlyingDetail"
+base_url = "https://apps.bea.gov/api/data/?UserID={}".format(settings["api_key"])
+method = "GetData"
+dataset = "NIUnderlyingDetail"
+year = "ALL"
+freq = "M"
+format = "json"
 
 
-def bea_data(table_number, frequency):
-    method = "&method=GetData"
-    ind = "&TableName=" + table_number
-    freq = "&Frequency=" + frequency
-    year = "&Year=ALL"
-    format = "&ResultFormat=json"
+def bea_data(base_url, method, dataset, year, table_number, freq, format):
+    method_url = "&method=" + method
+    dataset_url = "&DataSetName=" + dataset
+    year_url = "&Year=" + year
+    tabtable_number_url = "&TableName=" + table_number
+    freq_url = "&Frequency=" + freq
+    format_url = "&ResultFormat=" + format
 
-    url = "{}{}{}{}{}{}{}".format(base, method, dataset, year, ind, freq, format)
+    url = "{}{}{}{}{}{}{}".format(
+        base_url,
+        method_url,
+        dataset_url,
+        year_url,
+        tabtable_number_url,
+        freq_url,
+        format_url,
+    )
     r = requests.get(url).json()
 
     df_raw = pd.DataFrame(r["BEAAPI"]["Results"]["Data"])
@@ -42,36 +55,8 @@ def bea_data(table_number, frequency):
 
 # Download
 
-df_index = bea_data("U20404", frequency="M")
-df_weights = bea_data("U20405", frequency="M")
+df_index = bea_data(base_url, method, dataset, year, "U20404", freq, format)
+df_weights = bea_data(base_url, method, dataset, year, "U20405", freq, format)
 
 df_index.to_csv("df_index.csv")
 df_weights.to_csv("df_weights.csv")
-
-# PCE Groups
-
-pce_groups = [
-    "Personal consumption expenditures",
-    "PCE excluding food and energy",
-    "PCE excluding energy",
-    "Motor vehicles and parts",
-    "Furnishings and durable household equipment",
-    "Recreational goods and vehicles",
-    "Other durable goods",
-    "Food and beverages purchased for off-premises consumption",
-    "Clothing and footwear",
-    "Gasoline and other energy goods",
-    "Other nondurable goods",
-    "Housing",
-    "Water supply and sanitation (25)",
-    "Electricity and gas",
-    "Health care",
-    "Transportation services",
-    "Recreation services",
-    "Food services and accommodations",
-    "Financial services and insurance",
-    "Other services",
-    "Final consumption expenditures of nonprofit institutions serving households (NPISHs) (132)",
-]
-
-df_index.loc[:, pce_groups]
