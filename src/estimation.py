@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 from numba import njit
 
+from parameters import *
+from priors_initial_val import *
+
 ### DATA
 
 df_index = pd.read_csv("df_index.csv", index_col=[0], parse_dates=[0])
@@ -34,13 +37,6 @@ pce_groups = [
 
 df_index = df_index.loc[:, pce_groups]
 df_weights = df_weights.loc[:, pce_groups]
-
-
-# Parameters
-small = 1e-10
-big = 1e6
-nper = 12  # Units of time per year (Monthly: 12, Quarterly: 4)
-rgn = np.random.default_rng(1010)
 
 
 # Prepare data
@@ -126,6 +122,16 @@ share_avg_xe_np = share_avg_xe.values
 dnobs = len(dp_agg)
 
 # Sample Period for Analysis
-start_sample = "1960-1"
 sample = dp_agg.loc[start_sample:].index  # calvec_ismpl
 notim = len(sample)  # notim
+
+dp_mat = dp_disagg.loc[sample].values
+n_y = dp_mat.shape[1]  # Number of y variables
+
+# Scale Data
+
+dy = np.diff(dp_mat, axis=0)
+sd_ddp = np.std(dy, axis=0)
+sd_ddp_median = np.median(sd_ddp)
+scale_y = sd_ddp_median / 5
+dp_mat_n = dp_mat / scale_y
