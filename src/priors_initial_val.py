@@ -1,6 +1,7 @@
 import numpy as np
 
 from parameters import *
+from data_estimation import dp_mat_n, scale_y, n_y, notim
 
 
 ### Prior for scale mixture of epsilon component
