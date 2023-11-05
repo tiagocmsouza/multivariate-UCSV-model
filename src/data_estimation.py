@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from parameters import *
+from parameters import pce_groups, nper, start_sample
 
 
 ### DATA
