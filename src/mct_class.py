@@ -70,6 +70,8 @@ spec = [
     ("nobs", int64),
     ("ny", int64),
     ("prior_var_alpha", float64[:, :]),
+    ("prior_nu_alpha", float64),
+    ("prior_s2_alpha", float64),
     ("alpha_tau", float64[:, :]),
     ("alpha_eps", float64[:, :]),
     ("dalpha", float64[:, :]),
@@ -104,10 +106,13 @@ class mcmcTrend:
         self.nobs, self.ny = self.y.shape
 
         self.prior_var_alpha = self._prepare_prior_var_alpha()
+        self.prior_nu_alpha, self.prior_s2_alpha = self._prepare_prior_nu_s2_alpha()
 
         self.alpha_eps = np.ones((self.nobs, self.ny))
         self.alpha_tau = np.ones((self.nobs, self.ny))
         self.dalpha = np.ones((self.nobs, 2 * self.ny))
+
+        self.sigma_dalpha = self._prepare_sigma_dalpha()
 
         self.eps_common = np.zeros(self.nobs)
         self.tau_common = np.zeros(self.nobs)
@@ -116,8 +121,6 @@ class mcmcTrend:
         self.dtau_unique = np.zeros((self.nobs, self.ny))
         self.tau_f_common = np.zeros(self.nobs)
         self.tau_f_unique = np.zeros((self.nobs, self.ny))
-
-        self.sigma_dalpha = self._prepare_sigma_dalpha()
 
         self.sigma_eps_common = np.random.random(self.nobs)
         self.scale_eps_common = np.ones(self.nobs)
@@ -185,6 +188,13 @@ class mcmcTrend:
         )
 
         return prior_var_alpha
+
+    def _prepare_prior_nu_s2_alpha(self):
+
+        prior_nu_alpha = 0.1 * self.nobs
+        prior_s2_alpha = ((0.25 / np.sqrt(self.nobs)) ** 2) / (self.scale_y**2)
+
+        return prior_nu_alpha, prior_s2_alpha
 
     def _kalman_filter(self, y, X1, P1, H, F, R, Q):
         """
@@ -264,9 +274,9 @@ class mcmcTrend:
         P2t = np.zeros((ns, ns, self.nobs + 1))
         X1t[:, 0] = X1
         P1t[:, :, 0] = P1
-        X_Draw_Filt = np.empty(
+        X_draw_Filt = np.empty(
             (self.nobs + 1, ns)
-        )  # Draw from filtered; these are marginal draws, not joint (same as ucsv)
+        )  # draw from filtered; these are marginal draws, not joint (same as ucsv)
 
         # KALMAN FILTER
         for t in np.arange(self.nobs):
@@ -297,18 +307,18 @@ class mcmcTrend:
             P2t[:, :, t + 1] = P2
             chol_P1 = np.linalg.cholesky(P1)
             X = X1 + chol_P1 @ np.random.standard_normal(size=ns)
-            X_Draw_Filt[t + 1, :] = X
+            X_draw_Filt[t + 1, :] = X
 
         # KALMAN SMOOTHER
-        # Draw From State
-        X_Draw = np.empty((self.nobs + 1, ns))
+        # draw From State
+        X_draw = np.empty((self.nobs + 1, ns))
 
-        # Initial Draw
+        # Initial draw
         P3 = P1.copy()
         X3 = X1.copy()
         chol_P3 = np.linalg.cholesky(P3)
         X = X3 + chol_P3 @ np.random.standard_normal(size=ns)
-        X_Draw[self.nobs, :] = X
+        X_draw[self.nobs, :] = X
 
         for t in np.arange(self.nobs)[::-1]:  # Working backwards
 
@@ -338,15 +348,15 @@ class mcmcTrend:
                 chol_P3 = np.linalg.cholesky(P3)
                 X[2:] = X[2:] + chol_P3 @ np.random.standard_normal(size=ns - 2)
 
-            X_Draw[t, :] = X
+            X_draw[t, :] = X
 
-        self.eps_common = X_Draw[1:, 0]
-        self.tau_common = X_Draw[1:, 1]
-        self.tau_unique = X_Draw[1:, 2:]
-        self.dtau_common = X_Draw[1:, 1] - X_Draw[:-1, 1]
-        self.dtau_unique = X_Draw[1:, 2:] - X_Draw[:-1, 2:]
-        self.tau_f_common = X_Draw_Filt[1:, 1]
-        self.tau_f_unique = X_Draw_Filt[1:, 2:]
+        self.eps_common = X_draw[1:, 0]
+        self.tau_common = X_draw[1:, 1]
+        self.tau_unique = X_draw[1:, 2:]
+        self.dtau_common = X_draw[1:, 1] - X_draw[:-1, 1]
+        self.dtau_unique = X_draw[1:, 2:] - X_draw[:-1, 2:]
+        self.tau_f_common = X_draw_Filt[1:, 1]
+        self.tau_f_unique = X_draw_Filt[1:, 2:]
 
     def draw_alpha_tvp(self):
 
@@ -401,15 +411,15 @@ class mcmcTrend:
             P2t[:, :, t + 1] = P2
 
         # KALMAN SMOOTHER
-        # Draw From State
-        X_Draw = np.empty((self.nobs + 1, ns))
+        # draw From State
+        X_draw = np.empty((self.nobs + 1, ns))
 
-        # Initial Draw
+        # Initial draw
         P3 = P1.copy()
         X3 = X1.copy()
         chol_P3 = np.linalg.cholesky(P3)
         X = X3 + chol_P3 @ np.random.standard_normal(size=ns)
-        X_Draw[self.nobs, :] = X
+        X_draw[self.nobs, :] = X
 
         for t in np.arange(self.nobs)[::-1]:  # Working backwards
 
@@ -429,21 +439,40 @@ class mcmcTrend:
             X3 = X1 + np.transpose(AS) @ (X - X2)
             chol_P3 = np.linalg.cholesky(P3)
             X = X3 + chol_P3 @ np.random.standard_normal(size=ns)
-            X_Draw[t, :] = X
+            X_draw[t, :] = X
 
-        alpha_eps = X_Draw[1:, : self.ny]
-        alpha_tau = X_Draw[1:, self.ny :]
-        dalpha_eps = X_Draw[1:, : self.ny] - X_Draw[:-1, : self.ny]
-        dalpha_tau = X_Draw[1:, self.ny :] - X_Draw[:-1, self.ny :]
+        alpha_eps = X_draw[1:, : self.ny]
+        alpha_tau = X_draw[1:, self.ny :]
+        dalpha_eps = X_draw[1:, : self.ny] - X_draw[:-1, : self.ny]
+        dalpha_tau = X_draw[1:, self.ny :] - X_draw[:-1, self.ny :]
 
         self.alpha_eps = alpha_eps
         self.alpha_tau = alpha_tau
         self.dalpha = np.concatenate((dalpha_eps, dalpha_tau), axis=1)
 
+    def draw_dalpha_sigma(self):
+
+        nobs, n = self.dalpha.shape
+        ssr_mat = np.sum(self.dalpha**2, axis=0)
+        ssr_prior = self.prior_nu_alpha * self.prior_s2_alpha
+        nu = nobs + self.prior_nu_alpha
+        a = nu / 2
+        sigma_draw = np.zeros(n)
+
+        for i in np.arange(n):
+
+            ssr = ssr_mat[i] + ssr_prior
+            b = 2 / ssr
+            var_dalpha = 1 / np.random.gamma(shape=a, scale=1 / b)
+            sigma_draw[i] = np.sqrt(var_dalpha)
+
+        self.sigma_dalpha = sigma_draw
+
 
 test = mcmcTrend(dp_mat)
 
-test.dalpha
+test.sigma_dalpha
 test.mdraw_eps_tau()
 test.draw_alpha_tvp()
-test.dalpha
+test.draw_dalpha_sigma()
+test.sigma_dalpha
